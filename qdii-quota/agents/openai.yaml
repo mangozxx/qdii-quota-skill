@@ -1,0 +1,3 @@
+interface:
+  display_name: "QDII 申购额度查询"
+  short_description: "按基金公告口径查询 QDII 申购额度榜单与单只基金明细，附公告原文"
