@@ -53,14 +53,16 @@ def call(path: str, params: dict) -> dict:
             with urllib.request.urlopen(req, timeout=20) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code in (502, 503, 504) and attempt < 3:
-                time.sleep(attempt)
-                continue
             try:
                 detail = json.load(e).get("detail")
-            except ValueError:
-                detail = e.reason
-            sys.exit(f"查询失败（HTTP {e.code}）：{detail}")
+            except (ValueError, AttributeError):
+                detail = None
+            # retry gateway hiccups only; a 503 with a JSON detail is the service answering (e.g. view not built),
+            # and repeating it makes the front gateway take the whole service out for a while
+            if (e.code in (502, 504) or (e.code == 503 and not detail)) and attempt < 3:
+                time.sleep(attempt)
+                continue
+            sys.exit(f"查询失败（HTTP {e.code}）：{detail or e.reason}")
         except (urllib.error.URLError, ConnectionError, TimeoutError, ValueError) as e:
             if attempt < 3:
                 time.sleep(attempt)
@@ -297,6 +299,13 @@ def render_fund(d: dict) -> str:
 
 def render_coverage(d: dict) -> str:
     lines = [f"### 数据覆盖与时点（{d['channel']}）", ""] + timing(d)
+    if d.get("view_missing"):
+        lines += [f"**{md(d['as_of'], d['as_of'])} 的额度视图尚未生成**，以下为 {md(d['view_as_of'], d['as_of'])} 的数据。",
+                  ""]
+    sched = d.get("scheduler")
+    if sched:
+        last = (sched["last_cycle_at"] or "无记录").replace("T", " ")
+        lines.append(f"最近一轮调度 {last}" + ("（**超过 12 小时未运行，数据可能已停止更新**）" if sched["stale"] else ""))
     lines += [f"额度视图计算于 {d['view_computed_at'].replace('T', ' ')}" + ("（**已过期**）" if d["stale"] else ""),
               f"份额 {d['shares']} 个、产品 {d['products']} 个；个人投资者状态分布：{d['day_status']}",
               f"证据等级：{d['evidence']}；待复核：{d['open_review_tasks']}"]
