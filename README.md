@@ -38,14 +38,14 @@
 1. 下载本仓库（页面上的 Code → Download ZIP，或 `git clone`），把其中的 `qdii-quota` 文件夹放到所用 Agent 的 Skill 目录。
 2. 在 `qdii-quota` 文件夹里运行 `scripts/qdii.py coverage` 自检（Python 命令按本机环境选择），能看到“数据覆盖与时点”就说明装好了。
 
-不需要申请 Key，`config.env` 里已经配好了公共访问。以上步骤也可以直接交给 Agent 完成。装好后重启 Agent，用自然语言提问即可。
+不需要申请 Key，`config.ini` 里已经配好了公共访问。以上步骤也可以直接交给 Agent 完成。装好后重启 Agent，用自然语言提问即可。
 
 ## 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
 | 找不到 Python 命令 | 安装 Python 3.8 或以上，并确认命令行能调用 |
-| 查询失败（HTTP 401） | 公共访问配置已更换或暂停，请下载本仓库最新的 `config.env`；仍不行请提 Issue |
+| 查询失败（HTTP 401） | 公共访问配置已更换或暂停，请下载本仓库最新的 `config.ini`；仍不行请提 Issue |
 | 查询服务不可达 | 检查网络 |
 
 ## 看结果时注意

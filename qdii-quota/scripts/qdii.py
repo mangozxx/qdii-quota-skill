@@ -2,7 +2,7 @@
 """QDII 申购额度查询：调用 qdii-quota-api 并渲染 Markdown（只用标准库）。
 
 配置：QDII_API_BASE（如 https://<域名>/qdii-quota-api）、QDII_API_KEY。优先读环境变量，其次读 Skill 目录下的
-config.env（每行 KEY=VALUE，参考 config.env.example）。Python 3.8+，只用标准库；Windows / macOS / Linux 通用
+config.ini（每行 KEY=VALUE，参考 config.example.ini）。Python 3.8+，只用标准库；Windows / macOS / Linux 通用
 （Windows 上命令用 `python` 或 `py -3` 代替 `python3`）。
 
   python3 qdii.py rank  [--region 美股] [--asset equity] [--q 纳指] [--n 10] [--currency CNY] [--investor individual]
@@ -25,11 +25,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CONFIG = Path(__file__).resolve().parent.parent / "config.env"
+CONFIG = Path(__file__).resolve().parent.parent / "config.ini"
 CURRENCY = {"CNY": "人民币", "USD": "美元"}
 INVESTOR = {"individual": "个人", "institution": "机构"}
 INVESTOR_SHORT = {"individual": "个人", "institution": "机构"}
-# QDII_DISPLAY=public (config.env of the public edition): plain channel names for retail readers, no platform
+# QDII_DISPLAY=public (set in config.ini): plain channel names for retail readers, no platform
 # channel or institution rows in the fund table; the platform check becomes one supplementary line
 PUBLIC_CHANNEL_LABEL = {"agency": "代销（支付宝/天天基金等销售机构）", "direct": "直销（基金公司官方平台）"}
 
