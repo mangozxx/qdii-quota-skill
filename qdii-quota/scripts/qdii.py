@@ -208,6 +208,8 @@ def footnote(channel: str, extra: list[str]) -> list[str]:
         parts.append("✓ 已核实 = 公告与天天基金页面一致；天天基金不销售美元份额")
     elif channel == "agency":
         parts.append("代销口径为基金公告的统一规定，具体平台可能更严")
+    elif channel == "both":
+        parts.append("代销 = 支付宝/天天基金等销售机构，口径为基金公告的统一规定，具体平台可能更严；直销 = 基金公司官方平台")
     parts.append("⚠ 参考值 = 公告与渠道不一致或仅有渠道显示，已取较严值")
     parts += extra
     parts.append("仅供参考，以下单页面为准")
@@ -288,6 +290,110 @@ def render_table(d: dict) -> str:
         for i, (shares, q, e) in enumerate(merged(rs, base, d["as_of"])):
             lines.append(f"| {base if i == 0 else ''} | {shares} | {q} | {e} |")
     return "\n".join(lines + footnote(d["channel"], []))
+
+
+# ---------- public edition: agency and direct side by side ----------
+
+def pairs(agency: list[dict], direct: list[dict]) -> list[tuple[dict, dict | None, dict | None]]:
+    """按份额对齐两个渠道：[(参考行, 代销行, 直销行)]，任一渠道缺该份额时为 None。"""
+    a, d = {r["share_code"]: r for r in agency}, {r["share_code"]: r for r in direct}
+    codes = list(a) + [c for c in d if c not in a]
+    return [(a.get(c) or d[c], a.get(c), d.get(c)) for c in codes]
+
+
+def pair_open(p: tuple) -> bool:
+    return any(r and r["day_status"] == "open" for r in p[1:])
+
+
+def pair_value(p: tuple) -> float:
+    return max(sort_value(r) if r else -1 for r in p[1:])
+
+
+def pair_evidence(a: dict | None, d: dict | None, as_of: str) -> str:
+    ea, ed = (evidence(r, as_of) if r else None for r in (a, d))
+    if ea and ed and ea != ed:
+        return f"代销 {ea}；直销 {ed}"
+    return ea or ed or "—"
+
+
+def merged_pairs(ps: list[tuple], base: str, as_of: str) -> list[tuple[str, str, str, str]]:
+    """两个渠道额度和依据都相同的份额合并成一行：[(份额, 代销, 直销, 依据)]，按较高额度从高到低。"""
+    groups: dict[tuple[str, str, str], list[tuple]] = {}
+    for p in ps:
+        key = tuple(quota(r) if r else "—" for r in p[1:]) + (pair_evidence(p[1], p[2], as_of),)
+        groups.setdefault(key, []).append(p)
+    items = sorted(groups.items(), key=lambda kv: -max(map(pair_value, kv[1])))
+    return [(" · ".join(share_label(p[0], base) for p in g), qa, qd, e) for (qa, qd, e), g in items]
+
+
+def both_title(d: dict, what: str) -> str:
+    return f"### {what}｜代销 / 直销 · {CURRENCY[d['currency']]}份额"
+
+
+def render_rank_both(da: dict, dd: dict, rows_a: list[dict], rows_d: list[dict], n: int) -> str:
+    """da / dd 是两个渠道的榜单（取满 50 名），按两个渠道中较高的额度重新排名。"""
+    lines = [both_title(da, f"{da['scope']} QDII 可申购额度"), ""] + timing(da)
+    extra = []
+    if max(da.get("unverified_products") or 0, dd.get("unverified_products") or 0):
+        extra.append(f"另有 {max(da['unverified_products'], dd['unverified_products'])} 只状态未核实，未列入")
+    if max(da.get("unlimited_excluded") or 0, dd.get("unlimited_excluded") or 0):
+        extra.append(f"按要求未列入 {max(da['unlimited_excluded'], dd['unlimited_excluded'])} 只不限额产品")
+    ranked = {p["product_id"] for p in da["products"] + dd["products"]}
+    all_pairs = pairs(rows_a, rows_d)
+    products = []
+    for pid, ps in by_product([p[0] for p in all_pairs]).items():
+        if pid in ranked:
+            mine = [p for p in all_pairs if p[0]["product_id"] == pid and pair_open(p)]
+            if mine:
+                products.append((max(map(pair_value, mine)), pid, mine))
+    products.sort(key=lambda x: -x[0])
+    if not products:
+        lines.append(f"**没有可申购的产品**（候选 {da['candidate_products']} 只）。")
+        lines += unavailable([p[1] or p[2] for p in all_pairs if not pair_open(p)], set(), da["as_of"])
+        return "\n".join(lines + footnote("both", extra))
+    ranks = [1 + sum(1 for o in products if o[0] > v) for v, _, _ in products]
+    cut = ranks[min(n, len(products)) - 1]
+    shown = [(r, *x) for r, x in zip(ranks, products) if r <= cut]
+    complete = all(len(d["products"]) >= d["ranked"] for d in (da, dd))
+    # same "产品（份额）" count as the full table; share classes of one product are counted once in 只
+    total = (f"{len(products)} 只（{sum(len(x[2]) for x in products)} 个份额）" if complete
+             else f"至少 {max(da['ranked'], dd['ranked'])} 只")
+    v0 = shown[0][1]
+    best = "不限额" if v0 == float("inf") else money(str(v0), da["currency"]) + "/日"
+    names = [base_name([p[0]["share_name"] for p in ps], ps[0][0]["product_name"]) for r, _, _, ps in shown if r == 1]
+    shown_note = f"，下表列前 {n}" if len(products) > len(shown) else ""
+    tie = f"（第 {n} 名并列，多列 {len(shown) - n} 只）" if len(shown) > n else ""
+    who = "、".join(names) if len(names) <= 3 else "、".join(names[:3]) + f" 等 {len(names)} 只"
+    lines += [f"代销或直销任一渠道可买 **{total}**，最高 {best}（{who}），"
+              f"按两个渠道中较高的额度排序{shown_note}{tie}。", "",
+              "| # | 基金 | 份额 | 代销 | 直销 | 依据 |", "| --- | --- | --- | --- | --- | --- |"]
+    for rank, _, _, ps in shown:
+        base = base_name([p[0]["share_name"] for p in ps], ps[0][0]["product_name"])
+        for i, (shares, qa, qd, e) in enumerate(merged_pairs(ps, base, da["as_of"])):
+            lines.append(f"| {rank if i == 0 else ''} | {base if i == 0 else ''} | {shares} | {qa} | {qd} | {e} |")
+    lines += unavailable([p[1] or p[2] for p in all_pairs if not pair_open(p)], {x[2] for x in shown}, da["as_of"])
+    return "\n".join(lines + footnote("both", extra))
+
+
+def render_table_both(da: dict, dd: dict) -> str:
+    lines = [both_title(da, "QDII 申购额度完整表"), ""] + timing(da)
+    ps = pairs(da["rows"], dd["rows"])
+    # products with share counts in brackets, the same wording as rank's summary line
+    open_a, open_d = ({r["product_id"] for r in d["rows"] if r["day_status"] == "open"} for d in (da, dd))
+    open_ps = [p for p in ps if pair_open(p)]
+    total = {p[0]["product_id"] for p in ps}
+    lines += [f"共 {len(total)} 只产品（{len(ps)} 个份额），代销或直销任一渠道可买 "
+              f"**{len({p[0]['product_id'] for p in open_ps})} 只（{len(open_ps)} 个份额）**；"
+              f"其中代销可买 {len(open_a)} 只、直销可买 {len(open_d)} 只", "",
+              "| 基金 | 份额 | 代销 | 直销 | 依据 |", "| --- | --- | --- | --- | --- |"]
+    groups: dict[str, list[tuple]] = {}
+    for p in ps:
+        groups.setdefault(p[0]["product_id"], []).append(p)
+    for g in sorted(groups.values(), key=lambda g: (not any(map(pair_open, g)), -max(map(pair_value, g)))):
+        base = base_name([p[0]["share_name"] for p in g], g[0][0]["product_name"])
+        for i, (shares, qa, qd, e) in enumerate(merged_pairs(g, base, da["as_of"])):
+            lines.append(f"| {base if i == 0 else ''} | {shares} | {qa} | {qd} | {e} |")
+    return "\n".join(lines + footnote("both", []))
 
 
 def platform_note(rows: list[dict], platform: list[dict], base: str) -> list[str]:
@@ -406,7 +512,21 @@ def main() -> None:
     if a.cmd in ("rank", "table"):
         filters = {"region": a.region, "asset": a.asset, "q": a.q, "currency": a.currency, "investor": a.investor,
                    "channel": a.channel, "as_of": a.as_of}
-        if a.cmd == "rank":
+        if public() and not a.channel:
+            # public edition: agency and direct as two columns of one table, for the same order date
+            if a.cmd == "rank":
+                rk = {"n": 50, "include_unlimited": "false" if a.limited_only else None}
+                da = fetch("/rankings", {**filters, **rk, "channel": "agency"}, bool(a.as_of))
+                same = {**filters, "as_of": da["as_of"]}
+                dd = call("/rankings", {**same, **rk, "channel": "direct"})
+                out = render_rank_both(da, dd, call("/quotas", {**same, "channel": "agency"})["rows"],
+                                       call("/quotas", {**same, "channel": "direct"})["rows"], a.n)
+            else:
+                da = fetch("/quotas", {**filters, "codes": a.codes, "channel": "agency"}, bool(a.as_of))
+                dd = call("/quotas", {**filters, "codes": a.codes, "channel": "direct", "as_of": da["as_of"]})
+                out = render_table_both(da, dd)
+            d = {"agency": da, "direct": dd}
+        elif a.cmd == "rank":
             d = fetch("/rankings", {**filters, "n": a.n, "include_unlimited": "false" if a.limited_only else None},
                       bool(a.as_of))
             all_rows = call("/quotas", {**filters, "as_of": d["as_of"]})["rows"]
