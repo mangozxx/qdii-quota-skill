@@ -2,7 +2,7 @@
 """QDII 申购额度查询：调用 qdii-quota-api 并渲染 Markdown（只用标准库）。
 
 配置：QDII_API_BASE（如 https://<域名>/qdii-quota-api）、QDII_API_KEY。优先读环境变量，其次读 Skill 目录下的
-config.ini（每行 KEY=VALUE，参考 config.example.ini）。Python 3.8+，只用标准库；Windows / macOS / Linux 通用
+config.ini（每行 KEY=VALUE，参考 config.ini.example）。Python 3.8+，只用标准库；Windows / macOS / Linux 通用
 （Windows 上命令用 `python` 或 `py -3` 代替 `python3`）。
 
   python3 qdii.py rank  [--region 美股] [--asset equity] [--q 纳指] [--n 10] [--currency CNY] [--investor individual]

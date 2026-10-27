@@ -37,7 +37,7 @@ description: 按产品公告查询中国内地公募 QDII 产品的场外申购�
    python3 scripts/qdii.py coverage        # 用户问数据时点、覆盖范围时
    ```
    Python 命令因系统而异：macOS / Linux 用 `python3`；Windows 上 `python3` 不可用时依次改用 `python`、`py -3`。先用 `--help` 确认能运行，不要因命令名报错就判定服务不可用。
-   配置 `QDII_API_BASE`、`QDII_API_KEY`：环境变量优先，否则读本目录下的 `config.ini`（模板见 `config.example.ini`）。需要 Python 3.8+，只用标准库。
+   配置 `QDII_API_BASE`、`QDII_API_KEY`：环境变量优先，否则读本目录下的 `config.ini`（模板见 `config.ini.example`）。需要 Python 3.8+，只用标准库。
 
 3. **呈现**：**原样输出脚本的 Markdown**，不改动、不删减、不重排（标题、时点行、结论句、表格、暂停列表、“注”和链接都保留）。脚本已经给出结论句、表格之外的暂停/休市列表和统一的“注”，所以：
    - 不要在前后另写说明段落、风险提示或复述表格内容；
