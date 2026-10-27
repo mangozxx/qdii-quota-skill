@@ -29,6 +29,9 @@ CONFIG = Path(__file__).resolve().parent.parent / "config.env"
 CURRENCY = {"CNY": "人民币", "USD": "美元"}
 INVESTOR = {"individual": "个人", "institution": "机构"}
 INVESTOR_SHORT = {"individual": "个人", "institution": "机构"}
+# QDII_DISPLAY=public (config.env of the public edition): plain channel names for retail readers, no platform
+# channel or institution rows in the fund table; the platform check becomes one supplementary line
+PUBLIC_CHANNEL_LABEL = {"agency": "代销（支付宝/天天基金等销售机构）", "direct": "直销（基金公司官方平台）"}
 
 
 def setting(name: str) -> str:
@@ -40,6 +43,14 @@ def setting(name: str) -> str:
             if sep and k.strip() == name:
                 return v.strip().strip('"').strip("'")
     return ""
+
+
+def public() -> bool:
+    return setting("QDII_DISPLAY") == "public"
+
+
+def channel_name(channel: str, label: str | None) -> str:
+    return PUBLIC_CHANNEL_LABEL.get(channel, label or channel) if public() else (label or channel)
 
 
 def call(path: str, params: dict) -> dict:
@@ -161,8 +172,12 @@ def merged(rows: list[dict], base: str, as_of: str) -> list[tuple[str, str, str]
 
 
 def title_line(d: dict, what: str) -> str:
-    return (f"### {what}（{d['channel_label']} · {INVESTOR[d['investor']]} · {CURRENCY[d['currency']]}份额）"
-            if "channel_label" in d else f"### {what}")
+    if "channel_label" not in d:
+        return f"### {what}"
+    ch, cur = channel_name(d["channel"], d["channel_label"]), CURRENCY[d["currency"]]
+    if public() and d["investor"] == "individual":  # the label carries its own brackets; retail readers only
+        return f"### {what}｜{ch} · {cur}份额"
+    return f"### {what}（{ch} · {INVESTOR[d['investor']]} · {cur}份额）"
 
 
 def timing(d: dict) -> list[str]:
@@ -275,20 +290,44 @@ def render_table(d: dict) -> str:
     return "\n".join(lines + footnote(d["channel"], []))
 
 
+def platform_note(rows: list[dict], platform: list[dict], base: str) -> list[str]:
+    """Public edition: the sales-platform check as one line under the table, without naming the platform."""
+    agency = {r["share_code"]: r for r in rows if r["channel"] == "agency"}
+    notes = []  # only differences; agreement is the normal case and goes unsaid
+    for p in platform:
+        if p["day_status"] == "exchange_only":
+            continue
+        a, cls = agency.get(p["share_code"]), share_label(p, base)
+        if p["day_status"] == "not_sold":
+            notes.append(f"{cls} 该平台暂不销售")
+        elif a is None or quota(a) != quota(p):
+            notes.append(f"{cls} 平台显示{quota(p)}（公告口径：{quota(a) if a else '无'}）")
+    return ["", "补充（与主流代销平台页面核对）：" + "；".join(notes) + "。"] if notes else []
+
+
 def render_fund(d: dict) -> str:
     p = d["product"]
     lines = [f"### {p['name']}：各份额、各渠道申购额度", ""] + timing(d)
     lines.append(f"管理人 {p['manager'] or '—'}；业绩比较基准：{p['benchmark'] or '未披露'}；主要地区 {p['region'] or '—'}")
-    lines += ["", "| 渠道 | 投资者 | 份额 | 状态 / 单日上限 | 依据 |", "| --- | --- | --- | --- | --- |"]
     base = base_name([r["share_name"] for r in d["rows"]], p["name"])
+    rows, platform = d["rows"], []
+    if public():
+        platform = [r for r in rows if r["channel"] == "tiantian" and r["investor"] == "individual"]
+        rows = [r for r in rows if r["channel"] in PUBLIC_CHANNEL_LABEL and r["investor"] == "individual"]
+        lines += ["", "| 渠道 | 份额 | 状态 / 单日上限 | 依据 |", "| --- | --- | --- | --- |"]
+    else:
+        lines += ["", "| 渠道 | 投资者 | 份额 | 状态 / 单日上限 | 依据 |", "| --- | --- | --- | --- | --- |"]
     keys: dict[tuple[str, str], list[dict]] = {}
-    for r in d["rows"]:
+    for r in rows:
         if r["day_status"] == "exchange_only" and (r["channel"], r["investor"]) != ("agency", "individual"):
             continue
-        keys.setdefault((r["channel_label"], r["investor"]), []).append(r)
+        keys.setdefault((channel_name(r["channel"], r["channel_label"]), r["investor"]), []).append(r)
     for (ch, inv), rs in keys.items():
         for i, (shares, q, e) in enumerate(merged(rs, base, d["as_of"])):
-            lines.append(f"| {ch if i == 0 else ''} | {INVESTOR[inv] if i == 0 else ''} | {shares} | {q} | {e} |")
+            first = ch if i == 0 else ""
+            lines.append(f"| {first} | {shares} | {q} | {e} |" if public() else
+                         f"| {first} | {INVESTOR[inv] if i == 0 else ''} | {shares} | {q} | {e} |")
+    lines += platform_note(rows, platform, base)
     if d["upcoming_closures"]:
         lines += ["", "近期休市（暂停申购）日：" + "、".join(c["day"] for c in d["upcoming_closures"][:10])]
     if d["recent_quota_announcements"]:
